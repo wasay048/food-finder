@@ -1,47 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Popup,
-  useMapEvents,
-  useMap,
-} from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import LocationSearch from "./LocationSearch";
 import { Button } from "primereact/button";
-import { useFetchRestaurants } from "src/app/graphql/query";
+import { LocationMarker } from "./LocationMarker";
 
-const locationPinIcon = new L.Icon({
-  iconUrl:
-    "https://www.freepik.com/free-vector/location_2900811.htm#query=location%20pin%20png&position=1&from_view=keyword&track=ais_hybrid&uuid=f780aa15-cf27-4fa5-ae88-2be61b8270b8", // Replace this with the URL to your location pin image
-  iconSize: [30, 40], // Adjust size based on your image
-  iconAnchor: [15, 40], // Adjust based on your image
+export const locationPinIcon = new L.Icon({
+  iconUrl: "/location.svg",
+  iconSize: [30, 40],
+  iconAnchor: [15, 40],
   popupAnchor: [0, -40],
 });
-const LocationMarker: React.FC<{
-  onLocationChange: (lat: number, lng: number) => void;
-}> = ({ onLocationChange }) => {
-  const [position, setPosition] = useState<L.LatLng | null>(null);
-
-  useMapEvents({
-    click(e) {
-      setPosition(e.latlng);
-      onLocationChange(e.latlng.lat, e.latlng.lng);
-    },
-  });
-
-  return position === null ? null : (
-    <Marker position={position} icon={locationPinIcon}>
-      <Popup>You clicked here</Popup>
-    </Marker>
-  );
-};
 
 interface MapProps {
   onLocationChange: (lat: number, lng: number) => void;
+  handleFetchRestaurants: () => void;
 }
+
 const MapComponent: React.FC<{ setMapRef: (map: L.Map) => void }> = ({
   setMapRef,
 }) => {
@@ -53,25 +29,23 @@ const MapComponent: React.FC<{ setMapRef: (map: L.Map) => void }> = ({
 
   return null;
 };
-const Map: React.FC<MapProps> = ({ onLocationChange }) => {
+
+const Map: React.FC<MapProps> = ({
+  onLocationChange,
+  handleFetchRestaurants,
+}) => {
   const defaultCenter = { lat: 33.738045, lng: 73.084488 };
   const mapRef = useRef<L.Map | null>();
 
-  const mapboxAccessToken =
-    "pk.eyJ1IjoiYWJkdWx3YXNheSIsImEiOiJja3N0YWp5aHcwbWxhMnZtbGRhZzdudWxmIn0.r9SQfFwkyliVpkHdWViP5A";
-  const mapboxStyleUrl =
-    "https://api.mapbox.com/styles/v1/abdulwasay/cm0a1gffd00ma01pl1b7vcei1/tiles/256/{z}/{x}/{y}@2x?access_token=" +
-    mapboxAccessToken;
+  const mapBoxStyleUrl = process.env.NEXT_PUBLIC_MAP_BOX_STYLES;
+  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
   const [userLocation, setUserLocation] = useState<{
     lat: number;
     lng: number;
     name: string;
   } | null>();
-  const { fetchAllRestaurants, data } = useFetchRestaurants({
-    lat: userLocation?.lat ?? null,
-    lng: userLocation?.lng ?? null,
-  });
+
   const MapViewSetter = ({
     locations,
   }: {
@@ -95,33 +69,68 @@ const Map: React.FC<MapProps> = ({ onLocationChange }) => {
     return null;
   };
 
-  const handleFlyToLocation = () => {
-    const map = mapRef.current;
-    if (!map) return;
+  const handleUserLocation = (loc: {
+    lat: number;
+    lng: number;
+    name: string;
+  }) => {
+    setUserLocation(loc);
+    onLocationChange(loc.lat, loc.lng);
+  };
 
-    map.locate({
-      setView: true,
-      maxZoom: 16,
-    });
+  const getUserCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude: lat, longitude: lng } = position.coords;
 
-    map.on("locationfound", (e) => {
-      const { lat, lng } = e.latlng;
-      setUserLocation({ lat, lng, name: "Home" });
-      map.flyTo([lat, lng], map.getZoom());
+          fetchPlaceName(lat, lng);
+          if (mapRef.current) {
+            mapRef.current.setView([lat, lng], 16);
+            L.marker([lat, lng], { icon: locationPinIcon })
+              .addTo(mapRef.current)
+              .openPopup();
+          }
+        },
+        () => {
+          alert("Location access denied.");
+        }
+      );
+    } else {
+      alert("Geolocation is not supported by your browser.");
+    }
+  };
 
-      L.marker([lat, lng]).addTo(map).bindPopup("You are here!").openPopup();
-    });
-
-    map.on("locationerror", () => {
-      alert("Location access denied.");
-    });
+  const fetchPlaceName = (lat: number, lng: number) => {
+    fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${googleMapsApiKey}`
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (data.status === "OK" && data.results.length > 0) {
+          const placeName = data.results[0].formatted_address;
+          setUserLocation({ lat, lng, name: placeName });
+        } else {
+          console.error("No address found for the given coordinates.");
+          setUserLocation({ lat, lng, name: "Unknown Location" });
+        }
+      })
+      .catch((error) => {
+        console.error("Error fetching place name:", error);
+        setUserLocation({ lat, lng, name: "Unknown Location" });
+      });
   };
 
   return (
     <div className="relative ">
       <MapContainer
         center={[defaultCenter.lat, defaultCenter.lng]}
-        zoom={15}
+        zoom={12}
         maxZoom={30}
         style={{ height: "725px", width: "100%", zIndex: "1" }}
       >
@@ -131,7 +140,7 @@ const Map: React.FC<MapProps> = ({ onLocationChange }) => {
           }}
         />
         <TileLayer
-          url={mapboxStyleUrl}
+          url={mapBoxStyleUrl as string}
           attribution='&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a>'
         />
         {userLocation && (
@@ -147,22 +156,42 @@ const Map: React.FC<MapProps> = ({ onLocationChange }) => {
             </Marker>
           </>
         )}
-        <LocationMarker onLocationChange={onLocationChange} />
+        <LocationMarker onLocationChange={handleUserLocation} />
       </MapContainer>
-      <div className="w-1/2 absolute top-[40%] left-1/4 bg-black p-4 shadow-md rounded z-10">
+      <div className="hidden lg:block  xl:w-2/4 lg:w-4/5 items-center lg:left-[10%] xl:left-[20%]  absolute top-[40%]  bg-black p-4 shadow-md rounded z-10">
         <div className="flex justify-between">
           <LocationSearch
+            placeName={userLocation?.name ?? ""}
             onLocationSelect={(location) => {
               onLocationChange(location.lat, location.lng);
-              fetchAllRestaurants({ lat: location.lat, lng: location.lng });
               setUserLocation(location);
             }}
-            handleFlyToLocation={handleFlyToLocation}
+            handleFlyToLocation={getUserCurrentLocation}
           />
           <div className="justify-end w-60 ml-2">
             <Button
               label="Find Restaurants"
-              className="bg-successColor w-full md:w-auto border-successColor outline-successColor text-black border-[1px] p-3 rounded-full px-10 "
+              onClick={handleFetchRestaurants}
+              className="bg-successColor w-full md:w-auto border-successColor outline-successColor text-black border-[1px] p-3 rounded-full px-10 outline-none"
+            />
+          </div>
+        </div>
+      </div>
+      <div className="w-full absolute top-[40%] bg-black bg-opacity-60 p-4 shadow-md rounded z-10 lg:hidden">
+        <div className="flex flex-col items-center w-auto">
+          <LocationSearch
+            placeName={userLocation?.name ?? ""}
+            onLocationSelect={(location) => {
+              onLocationChange(location.lat, location.lng);
+              setUserLocation(location);
+            }}
+            handleFlyToLocation={getUserCurrentLocation}
+          />
+          <div className="justify-end w-60 ml-2 mt-4">
+            <Button
+              label="Find Restaurants"
+              onClick={handleFetchRestaurants}
+              className="bg-successColor w-full md:w-auto border-successColor outline-successColor text-black border-[1px] p-3 rounded-xl px-10 outline-none"
             />
           </div>
         </div>
