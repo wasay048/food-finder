@@ -1,10 +1,15 @@
 "use client";
 import React, { useState } from "react";
-import Map from "./components/map/Map";
+// import Map from "./components/map/Map";
 import Card from "./components/restaurants/Card";
 import { useFetchRestaurants } from "./hooks/location";
 import clsx from "clsx";
 import Spinner from "./components/Spinner";
+import dynamic from "next/dynamic";
+
+const MapComponent = dynamic(() => import("./components/map/Map"), {
+  ssr: false,
+});
 
 const Home: React.FC = () => {
   const [location, setLocation] = useState<{
@@ -26,7 +31,7 @@ const Home: React.FC = () => {
       {loading && <Spinner />}
       <div className="h-screen">
         <div className="h-96 relative">
-          <Map
+          <MapComponent
             onLocationChange={(lat: number, lng: number) => {
               handleLocationSelect({ lat, lng });
             }}
